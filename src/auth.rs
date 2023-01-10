@@ -275,7 +275,7 @@ pub async fn finish_authentication(
                 .ok_or(WebauthnError::UserHasNoCredentials)?;
 
             // Add our own value to the session
-            session.insert("user", &user_unique_id).unwrap();
+            session.insert("user", user_unique_id).unwrap();
 
             StatusCode::OK
         }

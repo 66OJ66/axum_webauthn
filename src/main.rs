@@ -72,7 +72,7 @@ async fn main() {
             info!("Application ready. Listening on {}", address);
             server.serve(app.into_make_service()).await.unwrap();
         }
-        Err(e) => error!("Unable to start application: {}", e.to_string()),
+        Err(e) => error!("Unable to start application: {}", e),
     }
 }
 
