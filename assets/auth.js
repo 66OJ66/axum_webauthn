@@ -20,16 +20,16 @@ function register () {
     .then((credential) => {
         fetch('http://localhost:8080/register_finish', {
             method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    id: credential.id,
-                    rawId: bufferEncode(credential.rawId),
-                    type: credential.type,
-                    response: {
-                        attestationObject: bufferEncode(credential.response.attestationObject),
-                        clientDataJSON: bufferEncode(credential.response.clientDataJSON),
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                id: credential.id,
+                rawId: Base64.fromUint8Array(new Uint8Array(credential.rawId), true),
+                type: credential.type,
+                response: {
+                    attestationObject: Base64.fromUint8Array(new Uint8Array(credential.response.attestationObject), true),
+                    clientDataJSON: Base64.fromUint8Array(new Uint8Array(credential.response.clientDataJSON), true),
                 },
             })
         })
@@ -72,12 +72,12 @@ function login() {
             },
             body: JSON.stringify({
                 id: assertion.id,
-                rawId: bufferEncode(assertion.rawId),
+                rawId: Base64.fromUint8Array(new Uint8Array(assertion.rawId), true),
                 type: assertion.type,
                 response: {
-                    authenticatorData: bufferEncode(assertion.response.authenticatorData),
-                    clientDataJSON: bufferEncode(assertion.response.clientDataJSON),
-                    signature: bufferEncode(assertion.response.signature),
+                    authenticatorData: Base64.fromUint8Array(new Uint8Array(assertion.response.authenticatorData), true),
+                    clientDataJSON: Base64.fromUint8Array(new Uint8Array(assertion.response.clientDataJSON), true),
+                    signature: Base64.fromUint8Array(new Uint8Array(assertion.response.signature), true),
                     userHandle: assertion.response.userHandle
                 },
             }),
@@ -90,9 +90,4 @@ function login() {
             }
         });
     });
-}
-
-// Converts ArrayBuffer to URLBase64
-function bufferEncode(value) {
-    return btoa(String.fromCharCode.apply(null, new Uint8Array(value)));
 }
