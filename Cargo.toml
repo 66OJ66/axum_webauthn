@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 axum = "0.6.1"
-axum-extra = { version = "0.4.2" , features = ["spa"] }
 axum-sessions = "0.4.1"
 rand = {version="0.8", features = ["min_const_gen"] }
 thiserror = "1.0.38"
