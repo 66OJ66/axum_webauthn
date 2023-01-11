@@ -85,6 +85,7 @@ function login() {
         .then((response) => {
             if (response.ok){
                 console.log("Logged In!");
+                window.location.replace("/");
             } else {
                 console.log("Error");
             }
