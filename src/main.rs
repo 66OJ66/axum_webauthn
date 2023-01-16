@@ -1,17 +1,22 @@
 mod auth;
+mod config;
 mod error;
 mod startup;
 
 use crate::auth::*;
 use crate::startup::AppState;
+use async_sqlx_session::PostgresSessionStore;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::{get, get_service, post};
 use axum::{Extension, Router};
 use axum_sessions::extractors::ReadableSession;
-use axum_sessions::{async_session::MemoryStore, SameSite, SessionLayer};
+use axum_sessions::{SameSite, SessionLayer};
 use rand::prelude::*;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
 use std::net::SocketAddr;
+use std::time::Duration;
 use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
@@ -37,10 +42,23 @@ async fn main() {
 
     let app_state = AppState::new();
 
+    // Setup the Postgres pool
+    let pool: PgPool = PgPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(3))
+        .connect("postgres://postgres:test@localhost:5432")
+        .await
+        .expect("Can't connect to database");
+
     //Configure cookie based sessions
-    let store = MemoryStore::new();
+    let pg_store = PostgresSessionStore::new("postgres://postgres:test@localhost:5432")
+        .await
+        .unwrap();
+    //pg_store.spawn_cleanup_task(Duration::from_secs(1));
+    pg_store.migrate().await.unwrap();
+
     let secret = thread_rng().gen::<[u8; 128]>(); // MUST be at least 64 bytes!
-    let session_layer = SessionLayer::new(store, &secret)
+    let session_layer = SessionLayer::new(pg_store, &secret)
         .with_cookie_name("webauthnrs")
         .with_same_site_policy(SameSite::Lax)
         .with_secure(true);
@@ -66,10 +84,12 @@ async fn main() {
         // Automatically compress responses
         .layer(CompressionLayer::new())
         // The pool of database connections
-        //.layer(Extension(pool))
+        .with_state(pool)
         // Tracing
         .layer(TraceLayer::new_for_http())
+        // App State
         .layer(Extension(app_state))
+        // Session
         .layer(session_layer);
 
     info!("Registered routes");
