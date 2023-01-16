@@ -69,7 +69,10 @@ pub async fn start_register(
             Some(record) => record.user_id,
             None => return Err(WebauthnError::Unknown),
         },
-        Err(e) => return Err(WebauthnError::Unknown),
+        Err(e) => {
+            error!("Error in start register process: {}", e);
+            return Err(WebauthnError::Unknown)
+        },
     };
 
     // Remove any previous registrations that may have occurred from the session.
@@ -153,12 +156,16 @@ pub async fn finish_register(
                         .execute(&pool)
                         .await
                         {
+                            error!("Error whilst inserting user: {}", e);
                             // Internal server error
                             return Err(WebauthnError::Unknown);
                         };
                     }
                 }
-                Err(e) => return Err(WebauthnError::Unknown),
+                Err(e) => {
+                    error!("Error in finish register process: {}", e);
+                    return Err(WebauthnError::Unknown)
+                },
             }
 
             // Serialise the key
@@ -226,7 +233,10 @@ pub async fn start_authentication(
 
     let user_id = match sqlx::query!("SELECT user_id FROM users WHERE user_name = $1;", &user_name).fetch_one(&pool).await {
         Ok(record) => record.user_id,
-        Err(e) => return Err(WebauthnError::Unknown),
+        Err(e) => {
+            error!("Error in start authentication process: {}", e);
+            return Err(WebauthnError::Unknown)
+        },
     };
 
     let Ok(records) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &user_id).fetch_all(&pool).await else {
@@ -253,7 +263,7 @@ pub async fn start_authentication(
 
     let res = match app_state
         .webauthn
-        .start_passkey_authentication(&*allow_credentials)
+        .start_passkey_authentication(&allow_credentials)
     {
         Ok((rcr, auth_state)) => {
             // Note that due to the session store in use being a server side memory store, this is
