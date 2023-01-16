@@ -106,7 +106,7 @@ async fn main() {
 }
 
 async fn index(session: ReadableSession) -> impl IntoResponse {
-    let Some(user) =  session.get::<String>("user") else {
+    let Some(user) =  session.get::<String>("user_name") else {
         return Redirect::to("/login").into_response();
     };
 

@@ -325,8 +325,13 @@ pub async fn finish_authentication(
                 return Err(WebauthnError::Unknown);
             };
 
+            let Ok(record) = sqlx::query!("SELECT user_name FROM users WHERE user_id = $1;", &user_id).fetch_one(&pool).await else {
+                // Internal server error
+                return Err(WebauthnError::Unknown);
+            };
+
             // Add our own value to the session
-            session.insert("user", user_id).unwrap();
+            session.insert("user_name", record.user_name).unwrap();
 
             StatusCode::OK
         }
