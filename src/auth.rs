@@ -66,9 +66,12 @@ pub async fn start_register(
     // Remove any previous registrations that may have occurred from the session.
     session.remove("reg_state");
 
-    let (user_id, exclude_credentials) : (Uuid, Option<Vec<CredentialID>>) = match sqlx::query!("SELECT user_id FROM users WHERE user_name = $1;", &username)
-        .fetch_optional(&pool)
-        .await
+    let (user_id, exclude_credentials): (Uuid, Option<Vec<CredentialID>>) = match sqlx::query!(
+        "SELECT user_id FROM users WHERE user_name = $1;",
+        &username
+    )
+    .fetch_optional(&pool)
+    .await
     {
         Ok(record) => match record {
             Some(record) => {
@@ -77,14 +80,27 @@ pub async fn start_register(
                     return Err(WebauthnError::Unknown);
                 };
 
-                (record.user_id, Some(records.iter().map(|record| serde_json::from_str::<Passkey>(&record.credential).unwrap().cred_id().clone()).collect()))
-            },
+                (
+                    record.user_id,
+                    Some(
+                        records
+                            .iter()
+                            .map(|record| {
+                                serde_json::from_str::<Passkey>(&record.credential)
+                                    .unwrap()
+                                    .cred_id()
+                                    .clone()
+                            })
+                            .collect(),
+                    ),
+                )
+            }
             None => (Uuid::new_v4(), None),
         },
         Err(e) => {
             error!("Error in start register process: {}", e);
-            return Err(WebauthnError::Unknown)
-        },
+            return Err(WebauthnError::Unknown);
+        }
     };
 
     let res = match app_state.webauthn.start_passkey_registration(
@@ -161,8 +177,8 @@ pub async fn finish_register(
                 }
                 Err(e) => {
                     error!("Error in finish register process: {}", e);
-                    return Err(WebauthnError::Unknown)
-                },
+                    return Err(WebauthnError::Unknown);
+                }
             }
 
             // Serialise the key
@@ -228,12 +244,18 @@ pub async fn start_authentication(
     // Remove any previous authentication that may have occurred from the session.
     session.remove("auth_state");
 
-    let user_id = match sqlx::query!("SELECT user_id FROM users WHERE user_name = $1;", &user_name).fetch_one(&pool).await {
+    let user_id = match sqlx::query!(
+        "SELECT user_id FROM users WHERE user_name = $1;",
+        &user_name
+    )
+    .fetch_one(&pool)
+    .await
+    {
         Ok(record) => record.user_id,
         Err(e) => {
             error!("Error in start authentication process: {}", e);
-            return Err(WebauthnError::Unknown)
-        },
+            return Err(WebauthnError::Unknown);
+        }
     };
 
     let Ok(records) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &user_id).fetch_all(&pool).await else {
@@ -301,7 +323,6 @@ pub async fn finish_authentication(
         .finish_passkey_authentication(&auth, &auth_state)
     {
         Ok(auth_result) => {
-
             let Ok(records) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &user_id).fetch_all(&pool).await else {
                 // Internal server error
                 return Err(WebauthnError::Unknown);
@@ -313,7 +334,7 @@ pub async fn finish_authentication(
                     return Err(WebauthnError::Unknown);
                 };
 
-                if credential.cred_id() == auth_result.cred_id(){
+                if credential.cred_id() == auth_result.cred_id() {
                     info!("Incrementing counter");
                     credential.update_credential(&auth_result);
 

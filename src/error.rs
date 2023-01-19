@@ -28,3 +28,7 @@ impl IntoResponse for WebauthnError {
         (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
     }
 }
+
+pub async fn handle_404(_: std::io::Error) -> (StatusCode, &'static str) {
+    (StatusCode::NOT_FOUND, "Not found")
+}

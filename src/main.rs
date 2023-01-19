@@ -4,8 +4,9 @@ mod error;
 mod startup;
 
 use self::auth::*;
-use self::startup::*;
 use self::config::*;
+use self::error::*;
+use self::startup::*;
 use async_sqlx_session::PostgresSessionStore;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
@@ -125,8 +126,4 @@ async fn index(session: ReadableSession) -> impl IntoResponse {
 
     let output = format!("<h1>Hello {0}</h1>", user);
     Html(output).into_response()
-}
-
-async fn handle_404(_: std::io::Error) -> (StatusCode, &'static str) {
-    (StatusCode::NOT_FOUND, "Not found")
 }
