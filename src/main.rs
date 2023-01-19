@@ -8,13 +8,11 @@ use self::config::*;
 use self::error::*;
 use self::startup::*;
 use async_sqlx_session::PostgresSessionStore;
-use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::{get, get_service, post};
 use axum::{Extension, Router};
 use axum_sessions::extractors::ReadableSession;
 use axum_sessions::{SameSite, SessionLayer};
-use rand::prelude::*;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::net::SocketAddr;
@@ -24,6 +22,9 @@ use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tracing::*;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+#[cfg(debug_assertions)]
+use rand::prelude::*;
 
 #[cfg(debug_assertions)]
 const TRACE_LEVEL: &str = "axum_webauthn=trace,webauthn_rs=trace,tower_http=debug";
@@ -71,7 +72,39 @@ async fn main() {
     pg_store.spawn_cleanup_task(Duration::from_secs(3600));
     pg_store.migrate().await.unwrap();
 
-    let secret = thread_rng().gen::<[u8; 128]>(); // MUST be at least 64 bytes!
+    #[cfg(debug_assertions)]
+    // Generate a secret in debug mode
+    let secret = match std::env::var("SESSION_SECRET") {
+        Ok(secret) => {
+            if secret.len() >= 64 {
+                secret.into_bytes()
+            } else {
+                error!("SESSION_SECRET must be at least 64 bytes");
+                return;
+            }
+        }
+
+        Err(_) => thread_rng().gen::<[u8; 128]>(),
+    };
+
+    #[cfg(not(debug_assertions))]
+    // A secret must be provided in release mode
+    let secret = match std::env::var("SESSION_SECRET") {
+        Ok(secret) => {
+            if secret.len() >= 64 {
+                secret.into_bytes()
+            } else {
+                error!("SESSION_SECRET must be at least 64 bytes");
+                return;
+            }
+        }
+
+        Err(_) => {
+            error!("Environmental variable SESSION_SECRET must be provided");
+            return;
+        }
+    };
+
     let session_layer = SessionLayer::new(pg_store, &secret)
         .with_cookie_name("webauthnrs")
         .with_same_site_policy(SameSite::Lax)
