@@ -84,7 +84,7 @@ async fn main() {
             }
         }
 
-        Err(_) => thread_rng().gen::<[u8; 128]>(),
+        Err(_) => thread_rng().gen::<[u8; 128]>().to_vec(),
     };
 
     #[cfg(not(debug_assertions))]
