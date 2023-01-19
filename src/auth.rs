@@ -53,6 +53,8 @@ use webauthn_rs::prelude::*;
 // In this step, we are responding to the start reg(istration) request, and providing
 // the challenge to the browser.
 
+// TODO - Improve error handling and messages
+
 pub async fn start_register(
     State(pool): State<PgPool>,
     Extension(app_state): Extension<AppState>,
@@ -61,32 +63,28 @@ pub async fn start_register(
 ) -> Result<impl IntoResponse, WebauthnError> {
     info!("Start register");
 
-    let user_id = match sqlx::query!("SELECT user_id FROM users WHERE user_name = $1;", &username)
+    // Remove any previous registrations that may have occurred from the session.
+    session.remove("reg_state");
+
+    let (user_id, exclude_credentials) : (Uuid, Option<Vec<CredentialID>>) = match sqlx::query!("SELECT user_id FROM users WHERE user_name = $1;", &username)
         .fetch_optional(&pool)
         .await
     {
         Ok(record) => match record {
-            Some(record) => record.user_id,
-            None => return Err(WebauthnError::Unknown),
+            Some(record) => {
+                let Ok(records) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &record.user_id).fetch_all(&pool).await else {
+                    // Internal server error
+                    return Err(WebauthnError::Unknown);
+                };
+
+                (record.user_id, Some(records.iter().map(|record| serde_json::from_str::<Passkey>(&record.credential).unwrap().cred_id().clone()).collect()))
+            },
+            None => (Uuid::new_v4(), None),
         },
         Err(e) => {
             error!("Error in start register process: {}", e);
             return Err(WebauthnError::Unknown)
         },
-    };
-
-    // Remove any previous registrations that may have occurred from the session.
-    session.remove("reg_state");
-
-    let Ok(records) = sqlx::query!("SELECT credential_id FROM auth WHERE user_id = $1;", &user_id).fetch_all(&pool).await else {
-        // Internal server error
-        return Err(WebauthnError::Unknown);
-    };
-
-    let exclude_credentials: Option<Vec<CredentialID>> = if records.is_empty() {
-        None
-    } else {
-        Some(records.into_iter().map(|record| Base64UrlSafeData::from(record.credential_id.into_bytes())).collect())
     };
 
     let res = match app_state.webauthn.start_passkey_registration(
@@ -102,7 +100,6 @@ pub async fn start_register(
             session
                 .insert("reg_state", (username, user_id, reg_state))
                 .expect("Failed to insert");
-            info!("Registration Successful!");
             Json(ccr)
         }
         Err(e) => {
@@ -175,7 +172,7 @@ pub async fn finish_register(
             };
 
             // Insert the key into the auth table
-            let Ok(_) = sqlx::query!("INSERT INTO auth(user_id, credential_id, credential) VALUES($1, $2, $3);", &user_id, &key.cred_id().to_string(), &serialised_key).execute(&pool).await else {
+            let Ok(_) = sqlx::query!("INSERT INTO auth(user_id, credential) VALUES($1, $2);", &user_id, &serialised_key).execute(&pool).await else {
                 // Internal server error
                 return Err(WebauthnError::Unknown);
             };
@@ -305,25 +302,33 @@ pub async fn finish_authentication(
     {
         Ok(auth_result) => {
 
-            let Ok(record) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1 AND credential_id = $2;", &user_id, auth_result.cred_id().to_string()).fetch_one(&pool).await else {
+            let Ok(records) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &user_id).fetch_all(&pool).await else {
                 // Internal server error
                 return Err(WebauthnError::Unknown);
             };
 
-            let Ok(mut credential) = serde_json::de::from_str::<Passkey>(&record.credential) else {
-                return Err(WebauthnError::Unknown);
-            };
+            for record in records {
+                let Ok(mut credential) = serde_json::from_str::<Passkey>(&record.credential) else {
+                    // Internal server error
+                    return Err(WebauthnError::Unknown);
+                };
 
-            credential.update_credential(&auth_result);
+                if credential.cred_id() == auth_result.cred_id(){
+                    info!("Incrementing counter");
+                    credential.update_credential(&auth_result);
 
-            let Ok(credential) = serde_json::ser::to_string(&credential) else {
-                return Err(WebauthnError::Unknown);
-            };
+                    let Ok(credential) = serde_json::to_string(&credential) else {
+                        return Err(WebauthnError::Unknown);
+                    };
 
-            let Ok(_) = sqlx::query!("UPDATE auth SET credential = $1 WHERE user_id = $2 AND credential_id = $3;", &credential, &user_id, auth_result.cred_id().to_string()).execute(&pool).await else {
-                // Internal server error
-                return Err(WebauthnError::Unknown);
-            };
+                    let Ok(_) = sqlx::query!("UPDATE auth SET credential = $1 WHERE user_id = $2 AND credential = $3;", &credential, &user_id, record.credential).execute(&pool).await else {
+                        // Internal server error
+                        return Err(WebauthnError::Unknown);
+                    };
+
+                    break;
+                }
+            }
 
             let Ok(record) = sqlx::query!("SELECT user_name FROM users WHERE user_id = $1;", &user_id).fetch_one(&pool).await else {
                 // Internal server error
