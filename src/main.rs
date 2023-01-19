@@ -3,8 +3,9 @@ mod config;
 mod error;
 mod startup;
 
-use crate::auth::*;
-use crate::startup::AppState;
+use self::auth::*;
+use self::startup::*;
+use self::config::*;
 use async_sqlx_session::PostgresSessionStore;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
@@ -42,19 +43,31 @@ async fn main() {
 
     let app_state = AppState::new();
 
-    // Setup the Postgres pool
-    let pool: PgPool = PgPoolOptions::new()
-        .max_connections(5)
+    let Ok(postgres_connection_string) = prepare_postgres_connection_string() else {
+        return;
+    };
+
+    // Setup the general Postgres pool
+    let app_pool: PgPool = PgPoolOptions::new()
+        .max_connections(25)
         .acquire_timeout(Duration::from_secs(3))
-        .connect("postgres://postgres:test@localhost:5432")
+        .connect(&postgres_connection_string)
         .await
         .expect("Can't connect to database");
 
-    //Configure cookie based sessions
-    let pg_store = PostgresSessionStore::new("postgres://postgres:test@localhost:5432")
+    // Setup the session Postgres pool
+    let session_pool: PgPool = PgPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(3))
+        .connect(&postgres_connection_string)
         .await
-        .unwrap();
-    //pg_store.spawn_cleanup_task(Duration::from_secs(1));
+        .expect("Can't connect to database");
+
+    info!("Connected to Postgres database");
+
+    //Configure cookie based sessions
+    let pg_store = PostgresSessionStore::from_client(session_pool);
+    pg_store.spawn_cleanup_task(Duration::from_secs(3600));
     pg_store.migrate().await.unwrap();
 
     let secret = thread_rng().gen::<[u8; 128]>(); // MUST be at least 64 bytes!
@@ -84,7 +97,7 @@ async fn main() {
         // Automatically compress responses
         .layer(CompressionLayer::new())
         // The pool of database connections
-        .with_state(pool)
+        .with_state(app_pool)
         // Tracing
         .layer(TraceLayer::new_for_http())
         // App State
