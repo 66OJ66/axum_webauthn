@@ -73,7 +73,7 @@ async fn main() {
     pg_store.migrate().await.unwrap();
 
     #[cfg(debug_assertions)]
-    // Generate a secret in debug mode
+    // Generate a secret in debug mode if not provided
     let secret = match std::env::var("SESSION_SECRET") {
         Ok(secret) => {
             if secret.len() >= 64 {
