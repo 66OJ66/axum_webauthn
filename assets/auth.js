@@ -12,6 +12,9 @@ function register () {
     .then(credentialCreationOptions => {
         credentialCreationOptions.publicKey.challenge = Base64.toUint8Array(credentialCreationOptions.publicKey.challenge);
         credentialCreationOptions.publicKey.user.id = Base64.toUint8Array(credentialCreationOptions.publicKey.user.id);
+        credentialCreationOptions.publicKey.excludeCredentials.forEach(function (listItem) {
+            listItem.id = Base64.toUint8Array(listItem.id)
+        });
 
         return navigator.credentials.create({
             publicKey: credentialCreationOptions.publicKey
@@ -41,6 +44,10 @@ function register () {
             }
         });
     })
+    .catch(err => {
+        console.log(err);
+        alert("Error whilst registering key");
+    });
 }
 
 function login() {
