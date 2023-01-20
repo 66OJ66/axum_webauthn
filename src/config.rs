@@ -83,16 +83,16 @@ pub fn prepare_server_address() -> Result<SocketAddr, ()> {
             Ok(ip_address) => ip_address,
             Err(e) => {
                 error!("Unable to parse SERVER_IP: {}", e);
-                return Err(())
+                return Err(());
             }
-        }
+        },
 
         Err(_) => {
             #[cfg(not(debug_assertions))]
             warn!(
-                    "Environmental variable SERVER_IP is not set. Using default value: {}",
-                    DEFAULT_SERVER_IP
-                );
+                "Environmental variable SERVER_IP is not set. Using default value: {}",
+                DEFAULT_SERVER_IP
+            );
 
             IpAddr::from(DEFAULT_SERVER_IP)
         }

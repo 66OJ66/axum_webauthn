@@ -337,11 +337,19 @@ pub async fn finish_authentication(
                 }
             }
 
-            let user_name = sqlx::query!("SELECT user_name FROM users WHERE user_id = $1;", &user_id).fetch_one(&pool).await?.user_name;
+            let user_name =
+                sqlx::query!("SELECT user_name FROM users WHERE user_id = $1;", &user_id)
+                    .fetch_one(&pool)
+                    .await?
+                    .user_name;
 
             // Add our own values to the session
-            session.insert("user_id", user_id).map_err(|e| WebauthnError::SessionError(e))?;
-            session.insert("user_name", user_name).map_err(|e| WebauthnError::SessionError(e))?;
+            session
+                .insert("user_id", user_id)
+                .map_err(|e| WebauthnError::SessionError(e))?;
+            session
+                .insert("user_name", user_name)
+                .map_err(|e| WebauthnError::SessionError(e))?;
 
             StatusCode::OK
         }

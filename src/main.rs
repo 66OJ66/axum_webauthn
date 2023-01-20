@@ -140,12 +140,11 @@ async fn main() {
 
     info!("Registered routes");
 
-    // Run it
     let Ok(address) = prepare_server_address() else {
         return;
     };
 
-
+    // Run it
     match axum::Server::try_bind(&address) {
         Ok(server) => {
             info!("Application ready. Listening on {}", address);
