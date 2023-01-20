@@ -356,7 +356,8 @@ pub async fn finish_authentication(
                 return Err(WebauthnError::Unknown);
             };
 
-            // Add our own value to the session
+            // Add our own values to the session
+            session.insert("user_id", user_id).unwrap();
             session.insert("user_name", record.user_name).unwrap();
 
             StatusCode::OK
