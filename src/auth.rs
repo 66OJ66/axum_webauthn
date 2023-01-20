@@ -240,7 +240,8 @@ pub async fn start_authentication(
         &user_name
     )
     .fetch_one(&pool)
-    .await?
+    .await
+    .map_err(|_| WebauthnError::UserNotFound)?
     .user_id;
 
     let records = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &user_id)
