@@ -1,12 +1,10 @@
 mod auth;
 mod config;
 mod error;
-mod startup;
 
 use self::auth::*;
 use self::config::*;
 use self::error::*;
-use self::startup::*;
 use async_sqlx_session::PostgresSessionStore;
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::{get, get_service, post};
@@ -43,7 +41,9 @@ async fn main() {
 
     info!("Starting application");
 
-    let app_state = AppState::new();
+    let Ok(app_state) = AppState::new() else {
+        return;
+    };
 
     let Ok(postgres_connection_string) = prepare_postgres_connection_string() else {
         return;

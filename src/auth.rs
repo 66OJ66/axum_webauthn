@@ -1,5 +1,5 @@
+use crate::config::AppState;
 use crate::error::WebauthnError;
-use crate::startup::AppState;
 use axum::extract::State;
 use axum::{
     extract::{Extension, Json, Path},
