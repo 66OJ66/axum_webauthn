@@ -86,7 +86,7 @@ pub async fn start_register(
                             .iter()
                             .map(|record| serde_json::from_str::<Passkey>(&record.credential))
                             .collect::<Result<Vec<Passkey>, _>>()
-                            .map_err(|e| WebauthnError::SerialisationError(e))?
+                            .map_err(WebauthnError::SerialisationError)?
                             .iter()
                             .map(|passkey| passkey.cred_id().clone())
                             .collect(),
@@ -108,7 +108,7 @@ pub async fn start_register(
             // not open to replay attacks. If this was a cookie store, this would be UNSAFE.
             session
                 .insert("reg_state", (username, user_id, reg_state))
-                .map_err(|e| WebauthnError::SessionError(e))?;
+                .map_err(WebauthnError::SessionError)?;
             Json(ccr)
         }
         Err(e) => {
@@ -152,8 +152,7 @@ pub async fn finish_register(
             .await?;
 
             // If the user doesn't exist, insert them into the users table
-            if record.count == Some(0) {
-                if sqlx::query!(
+            if record.count == Some(0) && sqlx::query!(
                     "INSERT INTO users(user_id, user_name) VALUES($1, $2);",
                     &user_id,
                     &user_name
@@ -161,15 +160,14 @@ pub async fn finish_register(
                 .execute(&pool)
                 .await?
                 .rows_affected()
-                    != 1
-                {
-                    return Err(WebauthnError::Unknown);
-                }
+                != 1
+            {
+                return Err(WebauthnError::Unknown);
             }
 
             // Serialise the key
             let serialised_key = serde_json::ser::to_string(&key)
-                .map_err(|e| WebauthnError::SerialisationError(e))?;
+                .map_err(WebauthnError::SerialisationError)?;
 
             // Insert the key into the auth table
             if sqlx::query!(
@@ -256,7 +254,7 @@ pub async fn start_authentication(
         .iter()
         .map(|record| serde_json::de::from_str::<Passkey>(&record.credential))
         .collect::<Result<Vec<Passkey>, _>>()
-        .map_err(|e| WebauthnError::SerialisationError(e))?;
+        .map_err(WebauthnError::SerialisationError)?;
 
     let res = match app_state
         .webauthn
@@ -268,7 +266,7 @@ pub async fn start_authentication(
             // not open to replay attacks. If this was a cookie store, this would be UNSAFE.
             session
                 .insert("auth_state", (&user_id, auth_state))
-                .map_err(|e| WebauthnError::SessionError(e))?;
+                .map_err(WebauthnError::SessionError)?;
             Json(rcr)
         }
         Err(e) => {
@@ -311,13 +309,13 @@ pub async fn finish_authentication(
 
             for record in records {
                 let mut credential = serde_json::from_str::<Passkey>(&record.credential)
-                    .map_err(|e| WebauthnError::SerialisationError(e))?;
+                    .map_err(WebauthnError::SerialisationError)?;
 
                 if credential.cred_id() == auth_result.cred_id() {
                     credential.update_credential(&auth_result);
 
                     let credential = serde_json::to_string(&credential)
-                        .map_err(|e| WebauthnError::SerialisationError(e))?;
+                        .map_err(WebauthnError::SerialisationError)?;
 
                     if sqlx::query!(
                         "UPDATE auth SET credential = $1 WHERE user_id = $2 AND credential = $3;",
@@ -346,10 +344,10 @@ pub async fn finish_authentication(
             // Add our own values to the session
             session
                 .insert("user_id", user_id)
-                .map_err(|e| WebauthnError::SessionError(e))?;
+                .map_err(WebauthnError::SessionError)?;
             session
                 .insert("user_name", user_name)
-                .map_err(|e| WebauthnError::SessionError(e))?;
+                .map_err(WebauthnError::SessionError)?;
 
             StatusCode::OK
         }
