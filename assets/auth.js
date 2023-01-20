@@ -12,9 +12,11 @@ function register () {
     .then(credentialCreationOptions => {
         credentialCreationOptions.publicKey.challenge = Base64.toUint8Array(credentialCreationOptions.publicKey.challenge);
         credentialCreationOptions.publicKey.user.id = Base64.toUint8Array(credentialCreationOptions.publicKey.user.id);
-        credentialCreationOptions.publicKey.excludeCredentials.forEach(function (listItem) {
-            listItem.id = Base64.toUint8Array(listItem.id)
-        });
+        if (credentialCreationOptions.publicKey.excludeCredentials != null) {
+            credentialCreationOptions.publicKey.excludeCredentials.forEach(function (listItem) {
+                listItem.id = Base64.toUint8Array(listItem.id)
+            });
+        }
 
         return navigator.credentials.create({
             publicKey: credentialCreationOptions.publicKey
