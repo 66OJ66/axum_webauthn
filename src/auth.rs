@@ -152,7 +152,8 @@ pub async fn finish_register(
             .await?;
 
             // If the user doesn't exist, insert them into the users table
-            if record.count == Some(0) && sqlx::query!(
+            if record.count == Some(0)
+                && sqlx::query!(
                     "INSERT INTO users(user_id, user_name) VALUES($1, $2);",
                     &user_id,
                     &user_name
@@ -160,14 +161,14 @@ pub async fn finish_register(
                 .execute(&pool)
                 .await?
                 .rows_affected()
-                != 1
+                    != 1
             {
                 return Err(WebauthnError::Unknown);
             }
 
             // Serialise the key
-            let serialised_key = serde_json::ser::to_string(&key)
-                .map_err(WebauthnError::SerialisationError)?;
+            let serialised_key =
+                serde_json::ser::to_string(&key).map_err(WebauthnError::SerialisationError)?;
 
             // Insert the key into the auth table
             if sqlx::query!(
