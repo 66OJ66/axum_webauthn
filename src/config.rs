@@ -1,3 +1,5 @@
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 use std::sync::Arc;
 use tracing::*;
 use webauthn_rs::prelude::*;
@@ -11,6 +13,10 @@ const DEFAULT_POSTGRES_PORT: &str = "5432";
 // Webauthn defaults
 const DEFAULT_RP_ID: &str = "localhost";
 const DEFAULT_RP_ORIGIN: &str = "http://localhost";
+
+// Server defaults
+const DEFAULT_SERVER_IP: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
+const DEFAULT_SERVER_PORT: u16 = 8080;
 
 /// Prepares a Postgres connection string using environmental variables (where provided) or default values.
 /// If successful, will output something like "postgres://postgres:postgres@localhost:5432"
@@ -69,6 +75,50 @@ pub fn prepare_postgres_connection_string() -> Result<String, ()> {
         "postgres://{0}:{1}@{2}:{3}",
         postgres_user, postgres_password, ip_address, port
     ))
+}
+
+pub fn prepare_server_address() -> Result<SocketAddr, ()> {
+    let ip_address: IpAddr = match std::env::var("SERVER_IP") {
+        Ok(ip_address) => match IpAddr::from_str(&ip_address) {
+            Ok(ip_address) => ip_address,
+            Err(e) => {
+                error!("Unable to parse SERVER_IP: {}", e);
+                return Err(())
+            }
+        }
+
+        Err(_) => {
+            #[cfg(not(debug_assertions))]
+            warn!(
+                    "Environmental variable SERVER_IP is not set. Using default value: {}",
+                    DEFAULT_SERVER_IP
+                );
+
+            IpAddr::from(DEFAULT_SERVER_IP)
+        }
+    };
+
+    let port: u16 = match std::env::var("SERVER_PORT") {
+        Ok(port) => match port.parse::<u16>() {
+            Ok(port) => port,
+            Err(_) => {
+                error!("Value of environmental variable SERVER_PORT is not an integer");
+                return Err(());
+            }
+        },
+
+        Err(_) => {
+            #[cfg(not(debug_assertions))]
+            warn!(
+                "Environmental variable SERVER_PORT is not set. Using default value: {}",
+                DEFAULT_SERVER_PORT
+            );
+
+            DEFAULT_SERVER_PORT
+        }
+    };
+
+    Ok(SocketAddr::new(ip_address, port))
 }
 
 #[derive(Clone)]

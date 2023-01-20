@@ -13,7 +13,6 @@ use axum_sessions::extractors::ReadableSession;
 use axum_sessions::{SameSite, SessionLayer};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
-use std::net::SocketAddr;
 use std::time::Duration;
 use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeDir, ServeFile};
@@ -142,7 +141,11 @@ async fn main() {
     info!("Registered routes");
 
     // Run it
-    let address = SocketAddr::from(([127, 0, 0, 1], 8080));
+    let Ok(address) = prepare_server_address() else {
+        return;
+    };
+
+
     match axum::Server::try_bind(&address) {
         Ok(server) => {
             info!("Application ready. Listening on {}", address);
