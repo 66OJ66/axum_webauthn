@@ -71,36 +71,28 @@ pub async fn start_register(
         &username
     )
     .fetch_optional(&pool)
-    .await
+    .await?
     {
-        Ok(record) => match record {
-            Some(record) => {
-                let Ok(records) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &record.user_id).fetch_all(&pool).await else {
-                    // Internal server error
-                    return Err(WebauthnError::Unknown);
-                };
+        Some(record) => {
+            let Ok(records) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &record.user_id).fetch_all(&pool).await else {
+                // Internal server error
+                return Err(WebauthnError::Unknown);
+            };
 
-                (
-                    record.user_id,
-                    Some(
-                        records
-                            .iter()
-                            .map(|record| {
-                                serde_json::from_str::<Passkey>(&record.credential)
-                                    .unwrap()
-                                    .cred_id()
-                                    .clone()
-                            })
-                            .collect(),
-                    ),
-                )
-            }
-            None => (Uuid::new_v4(), None),
-        },
-        Err(e) => {
-            error!("Error in start register process: {}", e);
-            return Err(WebauthnError::Unknown);
+            (
+                record.user_id,
+                Some(
+                    records
+                        .iter()
+                        .map(|record| serde_json::from_str::<Passkey>(&record.credential))
+                        .collect::<Result<Vec<Passkey>, _>>()?
+                        .iter()
+                        .map(|passkey| passkey.cred_id().clone())
+                        .collect(),
+                ),
+            )
         }
+        None => (Uuid::new_v4(), None),
     };
 
     let res = match app_state.webauthn.start_passkey_registration(
