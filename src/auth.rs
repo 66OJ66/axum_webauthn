@@ -236,41 +236,27 @@ pub async fn start_authentication(
     // Remove any previous authentication that may have occurred from the session.
     session.remove("auth_state");
 
-    let user_id = match sqlx::query!(
+    let user_id = sqlx::query!(
         "SELECT user_id FROM users WHERE user_name = $1;",
         &user_name
     )
     .fetch_one(&pool)
-    .await
-    {
-        Ok(record) => record.user_id,
-        Err(e) => {
-            error!("Error in start authentication process: {}", e);
-            return Err(WebauthnError::Unknown);
-        }
-    };
+    .await?
+    .user_id;
 
-    let Ok(records) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &user_id).fetch_all(&pool).await else {
-        // Internal server error
-        return Err(WebauthnError::Unknown);
-    };
+    let records = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &user_id)
+        .fetch_all(&pool)
+        .await?;
 
     if records.is_empty() {
         return Err(WebauthnError::UserHasNoCredentials);
     }
 
-    let mut allow_credentials: Vec<Passkey> = Vec::new();
-
-    for record in records {
-        match serde_json::de::from_str::<Passkey>(&record.credential) {
-            Ok(credential) => allow_credentials.push(credential),
-            Err(e) => {
-                error!("{}", e);
-                // Internal server error
-                return Err(WebauthnError::Unknown);
-            }
-        }
-    }
+    let allow_credentials: Vec<Passkey> = records
+        .iter()
+        .map(|record| serde_json::de::from_str::<Passkey>(&record.credential))
+        .collect::<Result<Vec<Passkey>, _>>()
+        .map_err(|e| WebauthnError::SerialisationError(e))?;
 
     let res = match app_state
         .webauthn
@@ -282,7 +268,7 @@ pub async fn start_authentication(
             // not open to replay attacks. If this was a cookie store, this would be UNSAFE.
             session
                 .insert("auth_state", (&user_id, auth_state))
-                .expect("Failed to insert");
+                .map_err(|e| WebauthnError::SessionError(e))?;
             Json(rcr)
         }
         Err(e) => {
@@ -315,42 +301,47 @@ pub async fn finish_authentication(
         .finish_passkey_authentication(&auth, &auth_state)
     {
         Ok(auth_result) => {
-            let Ok(records) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &user_id).fetch_all(&pool).await else {
-                // Internal server error
-                return Err(WebauthnError::Unknown);
-            };
+            let records = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &user_id)
+                .fetch_all(&pool)
+                .await?;
+
+            if records.is_empty() {
+                return Err(WebauthnError::UserHasNoCredentials);
+            }
 
             for record in records {
-                let Ok(mut credential) = serde_json::from_str::<Passkey>(&record.credential) else {
-                    // Internal server error
-                    return Err(WebauthnError::Unknown);
-                };
+                let mut credential = serde_json::from_str::<Passkey>(&record.credential)
+                    .map_err(|e| WebauthnError::SerialisationError(e))?;
 
                 if credential.cred_id() == auth_result.cred_id() {
-                    info!("Incrementing counter");
                     credential.update_credential(&auth_result);
 
-                    let Ok(credential) = serde_json::to_string(&credential) else {
-                        return Err(WebauthnError::Unknown);
-                    };
+                    let credential = serde_json::to_string(&credential)
+                        .map_err(|e| WebauthnError::SerialisationError(e))?;
 
-                    let Ok(_) = sqlx::query!("UPDATE auth SET credential = $1 WHERE user_id = $2 AND credential = $3;", &credential, &user_id, record.credential).execute(&pool).await else {
-                        // Internal server error
+                    if sqlx::query!(
+                        "UPDATE auth SET credential = $1 WHERE user_id = $2 AND credential = $3;",
+                        &credential,
+                        &user_id,
+                        record.credential
+                    )
+                    .execute(&pool)
+                    .await?
+                    .rows_affected()
+                        != 1
+                    {
                         return Err(WebauthnError::Unknown);
-                    };
+                    }
 
                     break;
                 }
             }
 
-            let Ok(record) = sqlx::query!("SELECT user_name FROM users WHERE user_id = $1;", &user_id).fetch_one(&pool).await else {
-                // Internal server error
-                return Err(WebauthnError::Unknown);
-            };
+            let user_name = sqlx::query!("SELECT user_name FROM users WHERE user_id = $1;", &user_id).fetch_one(&pool).await?.user_name;
 
             // Add our own values to the session
-            session.insert("user_id", user_id).unwrap();
-            session.insert("user_name", record.user_name).unwrap();
+            session.insert("user_id", user_id).map_err(|e| WebauthnError::SessionError(e))?;
+            session.insert("user_name", user_name).map_err(|e| WebauthnError::SessionError(e))?;
 
             StatusCode::OK
         }
