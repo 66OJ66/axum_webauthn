@@ -12,7 +12,9 @@ pub enum WebauthnError {
     #[error("Error communicating with Postgres database: {0}")]
     DatabaseError(#[from] sqlx::Error),
     #[error("Error during serialisation/deserialisation: {0}")]
-    SerialisationError(#[from] serde_json::Error),
+    SerialisationError(serde_json::Error),
+    #[error("Error updating the session: {0}")]
+    SessionError(serde_json::Error),
     #[error("Corrupt Session")]
     CorruptSession,
     #[error("User Not Found")]
@@ -29,6 +31,7 @@ impl IntoResponse for WebauthnError {
             WebauthnError::Unknown => "Unknown Error",
             WebauthnError::UserHasNoCredentials => "User Has No Credentials",
             WebauthnError::SerialisationError(_) => "Internal Server Error",
+            WebauthnError::SessionError(_) => "Internal Server Error",
         };
 
         error!("{}", self);

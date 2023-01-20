@@ -66,34 +66,35 @@ pub async fn start_register(
     // Remove any previous registrations that may have occurred from the session.
     session.remove("reg_state");
 
-    let (user_id, exclude_credentials): (Uuid, Option<Vec<CredentialID>>) = match sqlx::query!(
-        "SELECT user_id FROM users WHERE user_name = $1;",
-        &username
-    )
-    .fetch_optional(&pool)
-    .await?
-    {
-        Some(record) => {
-            let Ok(records) = sqlx::query!("SELECT credential FROM auth WHERE user_id = $1;", &record.user_id).fetch_all(&pool).await else {
-                // Internal server error
-                return Err(WebauthnError::Unknown);
-            };
+    let (user_id, exclude_credentials): (Uuid, Option<Vec<CredentialID>>) =
+        match sqlx::query!("SELECT user_id FROM users WHERE user_name = $1;", &username)
+            .fetch_optional(&pool)
+            .await?
+        {
+            Some(record) => {
+                let records = sqlx::query!(
+                    "SELECT credential FROM auth WHERE user_id = $1;",
+                    &record.user_id
+                )
+                .fetch_all(&pool)
+                .await?;
 
-            (
-                record.user_id,
-                Some(
-                    records
-                        .iter()
-                        .map(|record| serde_json::from_str::<Passkey>(&record.credential))
-                        .collect::<Result<Vec<Passkey>, _>>()?
-                        .iter()
-                        .map(|passkey| passkey.cred_id().clone())
-                        .collect(),
-                ),
-            )
-        }
-        None => (Uuid::new_v4(), None),
-    };
+                (
+                    record.user_id,
+                    Some(
+                        records
+                            .iter()
+                            .map(|record| serde_json::from_str::<Passkey>(&record.credential))
+                            .collect::<Result<Vec<Passkey>, _>>()
+                            .map_err(|e| WebauthnError::SerialisationError(e))?
+                            .iter()
+                            .map(|passkey| passkey.cred_id().clone())
+                            .collect(),
+                    ),
+                )
+            }
+            None => (Uuid::new_v4(), None),
+        };
 
     let res = match app_state.webauthn.start_passkey_registration(
         user_id,
@@ -107,7 +108,7 @@ pub async fn start_register(
             // not open to replay attacks. If this was a cookie store, this would be UNSAFE.
             session
                 .insert("reg_state", (username, user_id, reg_state))
-                .expect("Failed to insert");
+                .map_err(|e| WebauthnError::SessionError(e))?;
             Json(ccr)
         }
         Err(e) => {
@@ -143,47 +144,46 @@ pub async fn finish_register(
             info!("Passkey is okay");
 
             // Check if the user_id already exists
-            match sqlx::query!(
+            let record = sqlx::query!(
                 "SELECT COUNT(user_id) AS count FROM users WHERE user_id = $1;",
                 &user_id
             )
             .fetch_one(&pool)
-            .await
-            {
-                Ok(record) => {
-                    // If the user doesn't exist, insert them into the users table
-                    if record.count == Some(0) {
-                        if let Err(e) = sqlx::query!(
-                            "INSERT INTO users(user_id, user_name) VALUES($1, $2);",
-                            &user_id,
-                            &user_name
-                        )
-                        .execute(&pool)
-                        .await
-                        {
-                            error!("Error whilst inserting user: {}", e);
-                            // Internal server error
-                            return Err(WebauthnError::Unknown);
-                        };
-                    }
-                }
-                Err(e) => {
-                    error!("Error in finish register process: {}", e);
+            .await?;
+
+            // If the user doesn't exist, insert them into the users table
+            if record.count == Some(0) {
+                if sqlx::query!(
+                    "INSERT INTO users(user_id, user_name) VALUES($1, $2);",
+                    &user_id,
+                    &user_name
+                )
+                .execute(&pool)
+                .await?
+                .rows_affected()
+                    != 1
+                {
                     return Err(WebauthnError::Unknown);
                 }
             }
 
             // Serialise the key
-            let Ok(serialised_key) = serde_json::ser::to_string(&key) else {
-                // Serialisation error
-                return Err(WebauthnError::Unknown);
-            };
+            let serialised_key = serde_json::ser::to_string(&key)
+                .map_err(|e| WebauthnError::SerialisationError(e))?;
 
             // Insert the key into the auth table
-            let Ok(_) = sqlx::query!("INSERT INTO auth(user_id, credential) VALUES($1, $2);", &user_id, &serialised_key).execute(&pool).await else {
-                // Internal server error
+            if sqlx::query!(
+                "INSERT INTO auth(user_id, credential) VALUES($1, $2);",
+                &user_id,
+                &serialised_key
+            )
+            .execute(&pool)
+            .await?
+            .rows_affected()
+                != 1
+            {
                 return Err(WebauthnError::Unknown);
-            };
+            }
 
             StatusCode::OK
         }
